@@ -1,0 +1,12 @@
+{
+  "name": "Spend",
+  "short_name": "Spend",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0B0B0F",
+  "theme_color": "#0B0B0F",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icon.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
