@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Spend">
 <meta name="theme-color" content="#0B0B0F">
-<title>Spend by Megamind | Daily Expenses Tracker</title>
+<title>Spend</title>
 <link rel="apple-touch-icon" href="icon.png">
 <link rel="manifest" href="manifest.json">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -173,6 +173,8 @@ header{padding-top:calc(env(safe-area-inset-top) + 20px);padding-bottom:8px;disp
 
 .bill-area{margin-bottom:18px;}
 .bill-btn{width:100%;background:var(--surface-2);border:1.5px dashed var(--line);border-radius:14px;padding:16px;color:var(--muted);font-size:14px;font-weight:600;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:9px;}
+.bill-choice{display:flex;gap:10px;}
+.bill-choice .bill-btn{flex:1;}
 .bill-preview{position:relative;border-radius:14px;overflow:hidden;background:var(--surface-2);}
 .bill-preview img{width:100%;display:block;max-height:260px;object-fit:cover;}
 .bill-actions{position:absolute;top:10px;right:10px;display:flex;gap:8px;}
@@ -208,13 +210,14 @@ input[type=date].inp{color-scheme:dark;}
 <div class="auth-screen hide" id="authScreen">
   <div class="auth-logo">₹</div>
   <h1 id="authTitle">Welcome back</h1>
-  <p id="authSubtitle">Sign in to your shared expense tracker.</p>
+  <p id="authSubtitle">Sign in to your expense tracker.</p>
   <input class="auth-inp" id="authName" type="text" placeholder="Your name" autocomplete="name" style="display:none;">
   <input class="auth-inp" id="authEmail" type="email" placeholder="Email" autocomplete="username" autocapitalize="off">
   <input class="auth-inp" id="authPass" type="password" placeholder="Password" autocomplete="current-password">
   <div class="auth-err" id="authErr"></div>
   <button class="auth-btn" id="authBtn">Sign in</button>
-  
+  <div class="auth-toggle" id="authToggle" style="display:none;"></div>
+  <div class="auth-note">Access is by invitation. Contact the admin for an account.</div>
 </div>
 
 <div id="app" class="hide">
@@ -376,6 +379,7 @@ input[type=date].inp{color-scheme:dark;}
 </div>
 
 <input type="file" id="camInput" class="hidden-file" accept="image/*" capture="environment">
+<input type="file" id="galInput" class="hidden-file" accept="image/*">
 <div class="viewer" id="viewer"><button class="viewer-close" id="viewerClose">✕</button><img id="viewerImg" src="" alt="Bill"></div>
 <div class="toast" id="toast"></div>
 

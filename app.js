@@ -1,7 +1,7 @@
 // ===== Firebase SDK (v11 modular, from CDN) =====
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
-import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
-  signInWithEmailAndPassword, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+import { getAuth, onAuthStateChanged,
+  signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot }
   from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
 import { getStorage, ref as sref, uploadBytes, getDownloadURL, deleteObject }
@@ -21,9 +21,10 @@ const auth = getAuth(fbApp);
 const fdb = getFirestore(fbApp);
 const storage = getStorage(fbApp);
 
-// Shared workspace: everyone writes to the same collection so both users see one dataset.
-const SHARED = "shared";
-const txCol = collection(fdb, "workspaces", SHARED, "expenses");
+// Per-user private data: each signed-in user reads and writes only their own expenses.
+// txColFor(uid) returns that user's private expense collection.
+function txColFor(uid){ return collection(fdb, "users", uid, "expenses"); }
+let txCol = null; // set once the user is known
 
 // ===== CONFIG =====
 const CATS=[
@@ -78,36 +79,28 @@ function setSync(mode){const b=$('syncBadge'),t=$('syncText');b.className='sync-
   else if(mode==='syncing'){b.classList.add('syncing');t.textContent='Syncing';}
   else{t.textContent='Offline';}}
 
-// ===== AUTH =====
+// ===== AUTH ===== (sign-in only; accounts are created by admin in Firebase)
 let authMode='signin';
 function renderAuthMode(){
-  $('authTitle').textContent=authMode==='signin'?'Welcome back':'Create account';
-  $('authSubtitle').textContent=authMode==='signin'?'Sign in to your shared expense tracker.':'Each person makes one login. You share the same data.';
-  $('authName').style.display=authMode==='signin'?'none':'block';
-  $('authBtn').textContent=authMode==='signin'?'Sign in':'Create account';
-  $('authToggle').innerHTML=authMode==='signin'?'New here? <b>Create account</b>':'Have an account? <b>Sign in</b>';
+  if(!$('authTitle'))return;
+  $('authTitle').textContent='Welcome back';
+  $('authSubtitle').textContent='Sign in to your expense tracker.';
+  if($('authName'))$('authName').style.display='none';
+  $('authBtn').textContent='Sign in';
   $('authErr').textContent='';
 }
-$('authToggle').onclick=()=>{authMode=authMode==='signin'?'signup':'signin';renderAuthMode();};
+// signup toggle intentionally disabled
 $('authBtn').onclick=async()=>{
   const email=$('authEmail').value.trim().toLowerCase();
   const pass=$('authPass').value;
-  const name=$('authName').value.trim();
   const err=$('authErr');err.textContent='';
   if(!email||!pass){err.textContent='Enter email and password.';return;}
   $('authBtn').disabled=true;
   try{
-    if(authMode==='signup'){
-      if(!name){err.textContent='Enter your name.';$('authBtn').disabled=false;return;}
-      const cred=await createUserWithEmailAndPassword(auth,email,pass);
-      await updateProfile(cred.user,{displayName:name});
-    }else{
-      await signInWithEmailAndPassword(auth,email,pass);
-    }
+    await signInWithEmailAndPassword(auth,email,pass);
   }catch(e){
-    const m={'auth/invalid-email':'That email looks wrong.','auth/user-not-found':'No account with that email.',
-      'auth/wrong-password':'Wrong password.','auth/invalid-credential':'Wrong email or password.',
-      'auth/email-already-in-use':'Account exists. Sign in instead.','auth/weak-password':'Password needs 6+ characters.'};
+    const m={'auth/invalid-email':'That email looks wrong.','auth/user-not-found':'No account with that email. Contact the admin.',
+      'auth/wrong-password':'Wrong password.','auth/invalid-credential':'Wrong email or password.'};
     err.textContent=m[e.code]||'Something went wrong. Try again.';
   }
   $('authBtn').disabled=false;
@@ -115,25 +108,28 @@ $('authBtn').onclick=async()=>{
 $('signOutBtn').onclick=async()=>{if(unsub){unsub();unsub=null;}await signOut(auth);};
 
 onAuthStateChanged(auth,user=>{
-  $('boot').classList.add('hide');
+  if($('boot'))$('boot').classList.add('hide');
   if(user){
     currentUser={uid:user.uid,name:user.displayName||user.email,email:user.email};
+    txCol=txColFor(user.uid); // this user's private collection
     $('authScreen').classList.add('hide');
     $('app').classList.remove('hide');
-    $('setUser').textContent=currentUser.name+' · '+currentUser.email;
+    if($('setUser'))$('setUser').textContent=currentUser.name+' · '+currentUser.email;
     startSync();
     buildCats();buildSrc();buildFilters();
   }else{
-    currentUser=null;data=[];
+    currentUser=null;data=[];txCol=null;
     $('app').classList.add('hide');
     $('authScreen').classList.remove('hide');
     renderAuthMode();
-    $('authEmail').value='';$('authPass').value='';
+    if($('authEmail'))$('authEmail').value='';
+    if($('authPass'))$('authPass').value='';
   }
 });
 
 // ===== FIRESTORE realtime sync =====
 function startSync(){
+  if(!txCol)return;
   setSync('syncing');
   if(unsub)unsub();
   unsub=onSnapshot(txCol,snap=>{
@@ -154,12 +150,14 @@ async function removeExpense(id){await deleteDoc(doc(txCol,id));}
 
 // ===== photos (Firebase Storage) =====
 async function uploadBill(id,blob){
-  const r=sref(storage,`workspaces/${SHARED}/bills/${id}.jpg`);
+  const uid=currentUser?currentUser.uid:'anon';
+  const r=sref(storage,`users/${uid}/bills/${id}.jpg`);
   await uploadBytes(r,blob);
   return await getDownloadURL(r);
 }
 async function deleteBill(id){
-  try{await deleteObject(sref(storage,`workspaces/${SHARED}/bills/${id}.jpg`));}catch(e){}
+  const uid=currentUser?currentUser.uid:'anon';
+  try{await deleteObject(sref(storage,`users/${uid}/bills/${id}.jpg`));}catch(e){}
 }
 
 // ===== TAB NAV =====
@@ -385,19 +383,27 @@ function compress(file){return new Promise((res)=>{const img=new Image();const u
     const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
     c.toBlob(b=>{URL.revokeObjectURL(url);res(b);},'image/jpeg',0.72);};img.src=url;});}
 const camInput=$('camInput');
+const galInput=$('galInput');
 function renderBillArea(){
   const area=$('billArea');
-  if(state.billObjUrl){area.innerHTML=`<div class="bill-preview"><img src="${state.billObjUrl}" id="billThumb"><div class="bill-actions"><button class="bill-act" id="billReplace">🔄</button><button class="bill-act" id="billRemove">🗑️</button></div></div>`;
+  if(state.billObjUrl){area.innerHTML=`<div class="bill-preview"><img src="${state.billObjUrl}" id="billThumb"><div class="bill-actions"><button class="bill-act" id="billCam">📷</button><button class="bill-act" id="billGal">🖼️</button><button class="bill-act" id="billRemove">🗑️</button></div></div>`;
     $('billThumb').onclick=()=>openViewer(state.billObjUrl);
-    $('billReplace').onclick=()=>camInput.click();
+    $('billCam').onclick=()=>camInput.click();
+    $('billGal').onclick=()=>galInput.click();
     $('billRemove').onclick=()=>{clearPendingBill();state.removeBill=true;state.billIsRemote=false;renderBillArea();};
-  }else{area.innerHTML=`<button class="bill-btn" id="billAdd">📷 Capture bill</button>`;$('billAdd').onclick=()=>camInput.click();}
+  }else{
+    area.innerHTML=`<div class="bill-choice"><button class="bill-btn" id="billCam">📷 Camera</button><button class="bill-btn" id="billGal">🖼️ Gallery</button></div>`;
+    $('billCam').onclick=()=>camInput.click();
+    $('billGal').onclick=()=>galInput.click();
+  }
 }
 function clearPendingBill(){if(state.billObjUrl&&!state.billIsRemote){URL.revokeObjectURL(state.billObjUrl);}state.billObjUrl=null;state.pendingBill=null;}
-camInput.onchange=async e=>{const file=e.target.files[0];if(!file)return;
+async function handleBillFile(e){const file=e.target.files[0];if(!file)return;
   $('billArea').innerHTML='<div class="bill-processing">Processing photo…</div>';
   const blob=await compress(file);clearPendingBill();state.pendingBill=blob;state.removeBill=false;state.billIsRemote=false;
-  state.billObjUrl=URL.createObjectURL(blob);renderBillArea();camInput.value='';};
+  state.billObjUrl=URL.createObjectURL(blob);renderBillArea();e.target.value='';}
+camInput.onchange=handleBillFile;
+galInput.onchange=handleBillFile;
 const viewer=$('viewer');
 function openViewer(url){$('viewerImg').src=url;viewer.classList.add('open');}
 $('viewerClose').onclick=()=>viewer.classList.remove('open');
