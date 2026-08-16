@@ -21,10 +21,10 @@ const auth = getAuth(fbApp);
 const fdb = getFirestore(fbApp);
 const storage = getStorage(fbApp);
 
-// Per-user private data: each signed-in user reads and writes only their own expenses.
-// txColFor(uid) returns that user's private expense collection.
-function txColFor(uid){ return collection(fdb, "users", uid, "expenses"); }
-let txCol = null; // set once the user is known
+// Shared workspace: every signed-in user reads and writes the same dataset.
+const SHARED = "shared";
+const SHARED_COL = collection(fdb, "workspaces", SHARED, "expenses");
+let txCol = SHARED_COL;
 
 // ===== CONFIG =====
 const CATS=[
@@ -111,14 +111,14 @@ onAuthStateChanged(auth,user=>{
   if($('boot'))$('boot').classList.add('hide');
   if(user){
     currentUser={uid:user.uid,name:user.displayName||user.email,email:user.email};
-    txCol=txColFor(user.uid); // this user's private collection
+    txCol=SHARED_COL; // everyone shares one dataset
     $('authScreen').classList.add('hide');
     $('app').classList.remove('hide');
     if($('setUser'))$('setUser').textContent=currentUser.name+' · '+currentUser.email;
     startSync();
     buildCats();buildSrc();buildFilters();
   }else{
-    currentUser=null;data=[];txCol=null;
+    currentUser=null;data=[];txCol=SHARED_COL;
     $('app').classList.add('hide');
     $('authScreen').classList.remove('hide');
     renderAuthMode();
@@ -150,14 +150,12 @@ async function removeExpense(id){await deleteDoc(doc(txCol,id));}
 
 // ===== photos (Firebase Storage) =====
 async function uploadBill(id,blob){
-  const uid=currentUser?currentUser.uid:'anon';
-  const r=sref(storage,`users/${uid}/bills/${id}.jpg`);
+  const r=sref(storage,`workspaces/${SHARED}/bills/${id}.jpg`);
   await uploadBytes(r,blob);
   return await getDownloadURL(r);
 }
 async function deleteBill(id){
-  const uid=currentUser?currentUser.uid:'anon';
-  try{await deleteObject(sref(storage,`users/${uid}/bills/${id}.jpg`));}catch(e){}
+  try{await deleteObject(sref(storage,`workspaces/${SHARED}/bills/${id}.jpg`));}catch(e){}
 }
 
 // ===== TAB NAV =====
